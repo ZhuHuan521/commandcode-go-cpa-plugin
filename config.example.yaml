@@ -1,0 +1,39 @@
+enabled: true
+priority: 100
+
+# Single legacy key or weighted multi-key pool.
+api_key: user_YOUR_KEY
+# api_keys:
+#   - key: user_YOUR_FIRST_KEY
+#     weight: 10
+#     proxy_url: http://127.0.0.1:18080
+#   - key: user_YOUR_SECOND_KEY
+#     weight: 5
+
+# Optional default proxy used when a key has no proxy_url.
+proxy_url: ""
+
+# Command Code API root. If you configure /provider/v1 it is normalized.
+base_url: https://api.commandcode.ai
+
+protocol_version: "1.53.1"
+fingerprint_salt: ""
+device_project_dir: "C:\\Users\\dev\\projects\\app"
+cli_mode: agent
+cli_session_mode: interactive
+empty_system_placeholder: true
+use_provider_models: true
+model_refresh_interval_ms: 300000
+zdr: false
+
+stream_idle_ms: 30000
+nonstream_idle_ms: 90000
+max_body_mb: 100
+max_inflight: 0
+client_drain_timeout_ms: 0
+
+# Optional model claims. Omit to advertise the built-in default catalog.
+# models:
+#   - alias: deepseek-flash
+#     name: deepseek/deepseek-v4-flash
+#     display_name: DeepSeek V4 Flash
