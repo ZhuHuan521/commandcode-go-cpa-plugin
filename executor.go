@@ -177,6 +177,20 @@ func (e *Executor) openAIRequest(req pluginapi.ExecutorRequest) (map[string]any,
 	return payload, asString(payload["prompt_cache_key"])
 }
 
+// responseModel preserves the client-visible model name after the request
+// payload has been rewritten to the provider's upstream model name.
+func (e *Executor) responseModel(req pluginapi.ExecutorRequest, openAI map[string]any) string {
+	if req.Metadata != nil {
+		if requested := strings.TrimSpace(asString(req.Metadata[coreexecutor.RequestedModelMetadataKey])); requested != "" {
+			return requested
+		}
+	}
+	if requested := strings.TrimSpace(req.Model); requested != "" {
+		return requested
+	}
+	return firstNonEmpty(asString(openAI["model"]), "deepseek/deepseek-v4-flash")
+}
+
 func (e *Executor) buildBody(openAI map[string]any, sessionID string) []byte {
 	body := buildCcRequest(openAI, e.cfg)
 	if isUUID(sessionID) {
@@ -200,7 +214,7 @@ func (e *Executor) Execute(ctx context.Context, req pluginapi.ExecutorRequest) (
 		return pluginapi.ExecutorResponse{}, statusError{statusCode: http.StatusUnauthorized, msg: missingKeyMessage}
 	}
 	openAI, promptCacheKey := e.openAIRequest(req)
-	model := firstNonEmpty(asString(openAI["model"]), "deepseek/deepseek-v4-flash")
+	model := e.responseModel(req, openAI)
 	completionID := "chatcmpl-" + randomHex(6)
 	created := nowUnix()
 
@@ -310,7 +324,7 @@ func (e *Executor) ExecuteStream(ctx context.Context, req pluginapi.ExecutorRequ
 		return pluginapi.ExecutorStreamResponse{}, statusError{statusCode: http.StatusUnauthorized, msg: missingKeyMessage}
 	}
 	openAI, promptCacheKey := e.openAIRequest(req)
-	model := firstNonEmpty(asString(openAI["model"]), "deepseek/deepseek-v4-flash")
+	model := e.responseModel(req, openAI)
 	completionID := "chatcmpl-" + randomHex(6)
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -480,7 +494,7 @@ func (e *Executor) CountTokens(_ context.Context, req pluginapi.ExecutorRequest)
 		"id":      "commandcode-count",
 		"object":  "chat.completion",
 		"created": 0,
-		"model":   req.Model,
+		"model":   e.responseModel(req, decodeObject(req.Payload)),
 		"choices": []any{},
 		"usage": map[string]any{
 			"prompt_tokens":     count,

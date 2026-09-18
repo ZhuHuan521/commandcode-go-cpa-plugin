@@ -109,3 +109,27 @@ func TestExecutorRequestUsesPerAuthModelAlias(t *testing.T) {
 		t.Fatalf("model = %q, want vendor/private", got)
 	}
 }
+
+func TestExecutorResponseModelPreservesRequestedAlias(t *testing.T) {
+	cfg := parseConfig([]byte("models:\n  - alias: flash\n    name: deepseek/deepseek-v4-flash\n"))
+	executor := NewExecutor(cfg, nil)
+	openAI, _ := executor.openAIRequest(pluginapi.ExecutorRequest{
+		Model:   "flash",
+		Payload: []byte(`{"model":"flash","messages":[]}`),
+	})
+	if got := executor.responseModel(pluginapi.ExecutorRequest{
+		Model: "deepseek/deepseek-v4-flash",
+		Metadata: map[string]any{
+			"requested_model": "flash",
+		},
+	}, openAI); got != "flash" {
+		t.Fatalf("response model = %q, want flash", got)
+	}
+}
+
+func TestExecutorResponseModelFallsBackToRequestModel(t *testing.T) {
+	executor := NewExecutor(parseConfig([]byte("")), nil)
+	if got := executor.responseModel(pluginapi.ExecutorRequest{Model: "client-model"}, map[string]any{"model": "upstream-model"}); got != "client-model" {
+		t.Fatalf("response model = %q, want client-model", got)
+	}
+}
