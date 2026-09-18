@@ -39,29 +39,17 @@ workbench shows a **CommandCode** entry backed by the plugin config.
 
 ### Mixed-provider scheduling
 
-The host only puts credentials into its core scheduler when they are represented
-by an auth record. To let a CommandCode key compete with built-in providers for
-the same model, upload a JSON auth file through the management center's Auth
-Files page (the plugin recognizes `type: commandcode`):
+No manual auth file is required. When `shared_scheduling: true` and the plugin
+config contains `api_key` or `api_keys`, the plugin automatically materializes
+one managed host auth record per key. The managed files use the
+`commandcode-managed-*.json` prefix and are removed when the corresponding key
+configuration disappears or shared scheduling is disabled.
 
-```json
-{
-  "type": "commandcode",
-  "api_key": "user_YOUR_KEY",
-  "priority": 10,
-  "weight": 2,
-  "base_url": "https://api.commandcode.ai",
-  "models": [
-    {"alias": "deepseek-flash", "name": "deepseek/deepseek-v4-flash"}
-  ]
-}
-```
-
-For a pool, use `api_keys` with `key`, `weight`, and `proxy_url`. In
-`shared_scheduling` mode each configured model is advertised once using its
-alias (or its upstream name when no alias is set), and the host applies its
-priority, weight, cooldown, and failover logic. `commandcode/<model>` remains
+Each configured model is advertised using its alias (or upstream name when no
+alias is set), and the host applies its priority, weight, cooldown, and failover
+logic across CommandCode and built-in providers. `commandcode/<model>` remains
 an explicit CommandCode route syntax but is not duplicated in the model catalog.
+Manual `type: commandcode` auth files remain supported for advanced setups.
 
 ## Build
 
@@ -82,7 +70,7 @@ The plugin is found as `plugins/<goos>/<goarch>/commandcode-v1.0.0.*`.
 ## Config
 
 See `config.example.yaml`. Legacy `api_key` and weighted `api_keys` pools are
-supported; each key may carry its own `proxy_url`. The following proxy options
+supported; each key may carry its own `priority` and `proxy_url`. The following proxy options
 are also available: `base_url`, `protocol_version`, `fingerprint_salt`,
 `device_project_dir`, `cli_mode`, `cli_session_mode`,
 `empty_system_placeholder`, `use_provider_models`, `zdr`, `stream_idle_ms`,

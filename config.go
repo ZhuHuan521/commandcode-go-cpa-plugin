@@ -52,6 +52,7 @@ func (entry ModelEntry) contextLength() int64 {
 type APIKeyEntry struct {
 	Key      string `yaml:"key"`
 	Weight   int    `yaml:"weight"`
+	Priority int    `yaml:"priority"`
 	ProxyURL string `yaml:"proxy_url"`
 	Disabled bool   `yaml:"disabled"`
 }
@@ -356,12 +357,13 @@ func decodeAPIKeyEntries(raw any) []APIKeyEntry {
 			continue
 		}
 		weight := int(asNumber(entry["weight"]))
+		priority := int(asNumber(entry["priority"]))
 		proxyURL := strings.TrimSpace(asString(entry["proxy_url"]))
 		disabled := asBool(entry["disabled"])
 		if disabled {
 			continue
 		}
-		entries = append(entries, APIKeyEntry{Key: key, Weight: weight, ProxyURL: proxyURL})
+		entries = append(entries, APIKeyEntry{Key: key, Weight: weight, Priority: priority, ProxyURL: proxyURL})
 	}
 	return entries
 }
@@ -409,7 +411,7 @@ func configFields() []pluginapi.ConfigField {
 	return []pluginapi.ConfigField{
 		{Name: "shared_scheduling", Type: boolean, Description: "Register bare model names in the host scheduler; commandcode/<model> remains an explicit pin."},
 		{Name: "api_key", Type: stringType, Description: "Legacy single Command Code API key (user_xxx)."},
-		{Name: "api_keys", Type: arrayType, Description: "Weighted key pool: [{key, weight, proxy_url}]."},
+		{Name: "api_keys", Type: arrayType, Description: "Weighted key pool: [{key, weight, priority, proxy_url}]."},
 		{Name: "proxy_url", Type: stringType, Description: "Optional default proxy for keys without their own proxy_url."},
 		{Name: "base_url", Type: stringType, Description: "Command Code API base URL, default https://api.commandcode.ai"},
 		{Name: "models", Type: arrayType, Description: "Model claims as [{alias, name, display_name}]."},
