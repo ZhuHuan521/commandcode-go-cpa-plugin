@@ -106,6 +106,11 @@ type abiAuthRefreshRequest struct {
 	HostCallbackID string `json:"host_callback_id,omitempty"`
 }
 
+type abiAuthModelRequest struct {
+	pluginapi.AuthModelRequest
+	HostCallbackID string `json:"host_callback_id,omitempty"`
+}
+
 type abiIdentifierResponse struct {
 	Identifier string `json:"identifier"`
 }
@@ -278,8 +283,8 @@ func handleABIMethod(ctx context.Context, method string, request []byte) ([]byte
 		resp, errCall := plugin.StaticModels(ctx, req)
 		return abiOKEnvelopeWithError(resp, errCall)
 	case pluginabi.MethodModelForAuth:
-		var req pluginapi.AuthModelRequest
-		if errDecode := json.Unmarshal(request, &req); errDecode != nil {
+		req, errDecode := decodeABIAuthModelRequest(request)
+		if errDecode != nil {
 			return nil, errDecode
 		}
 		resp, errCall := plugin.ModelsForAuth(ctx, req)
@@ -351,6 +356,16 @@ func handleABIMethod(ctx context.Context, method string, request []byte) ([]byte
 	default:
 		return abiErrorEnvelope("unknown_method", "unknown method: "+method), nil
 	}
+}
+
+func decodeABIAuthModelRequest(request []byte) (pluginapi.AuthModelRequest, error) {
+	var rpcReq abiAuthModelRequest
+	if errDecode := json.Unmarshal(request, &rpcReq); errDecode != nil {
+		return pluginapi.AuthModelRequest{}, errDecode
+	}
+	req := rpcReq.AuthModelRequest
+	req.HTTPClient = abiHostHTTPClient{callbackID: rpcReq.HostCallbackID}
+	return req, nil
 }
 
 func handleRegister(request []byte) ([]byte, error) {

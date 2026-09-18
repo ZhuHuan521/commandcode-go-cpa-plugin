@@ -10,15 +10,46 @@ import (
 )
 
 type modelDiscoveryHTTPClient struct {
-	url string
+	url   string
+	calls int
 }
 
 func (c *modelDiscoveryHTTPClient) Do(_ context.Context, req pluginapi.HTTPRequest) (pluginapi.HTTPResponse, error) {
+	c.calls++
 	c.url = req.URL
 	return pluginapi.HTTPResponse{
 		StatusCode: http.StatusOK,
 		Body:       []byte(`{"data":[{"id":"vendor/discovered"}]}`),
 	}, nil
+}
+
+func TestCommandCodeModelsForAuthDoesNotDiscoverWhenDisabled(t *testing.T) {
+	cfg := parseConfig([]byte("use_provider_models: false\napi_key: config-key\nmodels:\n  - alias: configured\n    name: vendor/configured\n"))
+	provider := NewModelProvider(cfg)
+	client := &modelDiscoveryHTTPClient{}
+	_, errModels := provider.ModelsForAuth(context.Background(), pluginapi.AuthModelRequest{
+		Attributes: map[string]string{"api_key": "auth-key"},
+		HTTPClient: client,
+	})
+	if errModels != nil {
+		t.Fatalf("ModelsForAuth() error = %v", errModels)
+	}
+	if client.calls != 0 {
+		t.Fatalf("host HTTP calls = %d, want 0 when use_provider_models is false", client.calls)
+	}
+}
+
+func TestParseProviderModelsPreservesAliasAndUpstreamName(t *testing.T) {
+	entries, err := parseProviderModels([]byte(`{"data":[{"id":"vendor/upstream","alias":"friendly","display_name":"Friendly"}]}`))
+	if err != nil {
+		t.Fatalf("parseProviderModels() error = %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("parseProviderModels() returned %d entries, want 1", len(entries))
+	}
+	if entries[0].Alias != "friendly" || entries[0].Name != "vendor/upstream" {
+		t.Fatalf("entry = %#v, want alias friendly and upstream name vendor/upstream", entries[0])
+	}
 }
 
 func (*modelDiscoveryHTTPClient) DoStream(context.Context, pluginapi.HTTPRequest) (pluginapi.HTTPStreamResponse, error) {

@@ -188,35 +188,42 @@ func parseProviderModels(body []byte) ([]ModelEntry, error) {
 			MaxContextLength int64          `json:"max_context_length"`
 			Thinking         *ModelThinking `json:"thinking"`
 		}
-		id := ""
+		upstreamName := ""
 		if errDecode := json.Unmarshal(rawModel, &object); errDecode == nil {
-			id = firstNonEmpty(object.ID, object.Name, object.Alias)
+			upstreamName = firstNonEmpty(object.ID, object.Name)
 		} else {
 			var text string
 			if errText := json.Unmarshal(rawModel, &text); errText == nil {
-				id = text
+				upstreamName = text
 			}
 		}
-		id = strings.TrimSpace(id)
-		if id == "" {
+		upstreamName = strings.TrimSpace(upstreamName)
+		alias := strings.TrimSpace(object.Alias)
+		if upstreamName == "" {
+			upstreamName = alias
+		}
+		if alias == "" {
+			alias = upstreamName
+		}
+		if upstreamName == "" {
 			continue
 		}
-		key := strings.ToLower(id)
+		key := strings.ToLower(upstreamName)
 		if _, exists := seen[key]; exists {
 			continue
 		}
 		seen[key] = struct{}{}
 		display := strings.TrimSpace(object.DisplayName)
 		if display == "" {
-			display = id
+			display = upstreamName
 		}
 		contextLength := object.ContextLength
 		if contextLength <= 0 {
 			contextLength = object.MaxContextLength
 		}
 		entries = append(entries, ModelEntry{
-			Alias:            id,
-			Name:             id,
+			Alias:            alias,
+			Name:             upstreamName,
 			DisplayName:      display,
 			MaxContextLength: contextLength,
 			Thinking:         object.Thinking,
@@ -274,7 +281,7 @@ func (p *ModelProvider) ModelsForAuth(ctx context.Context, req pluginapi.AuthMod
 	if len(ms) > 0 {
 		key = strings.TrimSpace(ms[0].Key)
 	}
-	if key != "" && p.cfg != nil {
+	if key != "" && p.cfg != nil && p.cfg.useProviderModels() {
 		authBaseURL := strings.TrimSpace(req.Attributes["base_url"])
 		if authBaseURL == "" && req.Metadata != nil {
 			authBaseURL = strings.TrimSpace(asString(req.Metadata["base_url"]))

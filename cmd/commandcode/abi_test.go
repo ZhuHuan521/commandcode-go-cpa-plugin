@@ -8,6 +8,33 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
 
+func TestDecodeABIAuthModelRequestInjectsHostHTTPClient(t *testing.T) {
+	raw, err := json.Marshal(abiAuthModelRequest{
+		AuthModelRequest: pluginapi.AuthModelRequest{
+			AuthID:     "auth-1",
+			Attributes: map[string]string{"api_key": "key"},
+		},
+		HostCallbackID: "callback-42",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := decodeABIAuthModelRequest(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, ok := req.HTTPClient.(abiHostHTTPClient)
+	if !ok {
+		t.Fatalf("HTTPClient type = %T, want abiHostHTTPClient", req.HTTPClient)
+	}
+	if client.callbackID != "callback-42" {
+		t.Fatalf("callback ID = %q, want callback-42", client.callbackID)
+	}
+	if req.AuthID != "auth-1" || req.Attributes["api_key"] != "key" {
+		t.Fatalf("decoded auth request = %#v", req)
+	}
+}
+
 func TestAuthMethodIsReachable(t *testing.T) {
 	registerRequest, errMarshalRegister := json.Marshal(abiLifecycleRequest{ConfigYAML: []byte("shared_scheduling: true\n")})
 	if errMarshalRegister != nil {
