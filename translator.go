@@ -35,7 +35,7 @@ func (t *Translator) TranslateRequest(_ context.Context, req pluginapi.RequestTr
 	default:
 		return pluginapi.PayloadResponse{Body: append([]byte(nil), req.Body...)}, nil
 	}
-	t.normalizeRequestModelMap(req.Model, openAI)
+	t.normalizeRequestModelMap(req.Model, openAI, nil)
 	ccBody := buildCcRequest(openAI, t.cfg)
 	return pluginapi.PayloadResponse{Body: encodeJSON(ccBody)}, nil
 }
@@ -53,11 +53,17 @@ func (t *Translator) TranslateResponse(_ context.Context, req pluginapi.Response
 	return pluginapi.PayloadResponse{Body: fixed}, nil
 }
 
-func (t *Translator) normalizeRequestModelMap(model string, openAI map[string]any) {
+func (t *Translator) normalizeRequestModelMap(model string, openAI map[string]any, metadata map[string]any) {
 	if len(openAI) == 0 {
 		return
 	}
-	name := t.cfg.upstreamName(model)
+	name := ""
+	if t != nil && t.cfg != nil {
+		name = t.cfg.upstreamName(model)
+	}
+	if name == "" {
+		name = upstreamModelFromMetadata(model, metadata)
+	}
 	if name == "" {
 		return
 	}
@@ -65,6 +71,49 @@ func (t *Translator) normalizeRequestModelMap(model string, openAI map[string]an
 		return
 	}
 	openAI["model"] = name
+}
+
+// upstreamModelFromMetadata resolves aliases declared in a per-auth JSON
+// record. These aliases are intentionally scoped to that credential and are
+// therefore not copied into the plugin-wide config index.
+func upstreamModelFromMetadata(model string, metadata map[string]any) string {
+	if len(metadata) == 0 {
+		return ""
+	}
+	requested := strings.TrimSpace(stripCommandCodePrefix(model))
+	if requested == "" {
+		return ""
+	}
+	requestedNormalized := normalizeModel(requested)
+	values := asSlice(metadata["models"])
+	if len(values) == 0 {
+		if typed, ok := metadata["models"].([]map[string]any); ok {
+			values = make([]any, len(typed))
+			for index := range typed {
+				values[index] = typed[index]
+			}
+		}
+	}
+	for _, value := range values {
+		item := asMap(value)
+		name := strings.TrimSpace(asString(item["name"]))
+		alias := strings.TrimSpace(asString(item["alias"]))
+		if name == "" {
+			name = alias
+		}
+		if name == "" {
+			continue
+		}
+		if strings.EqualFold(alias, requested) || strings.EqualFold(name, requested) {
+			return name
+		}
+		// Preserve compatibility with the historical namespace-insensitive
+		// matching used by the plugin config index.
+		if normalizeModel(alias) == requestedNormalized || normalizeModel(name) == requestedNormalized {
+			return name
+		}
+	}
+	return ""
 }
 
 // mapReasoningBody backfills reasoning_content from commandcode's

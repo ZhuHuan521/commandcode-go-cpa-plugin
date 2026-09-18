@@ -173,7 +173,7 @@ func (e *Executor) openAIRequest(req pluginapi.ExecutorRequest) (map[string]any,
 	if model != "" {
 		payload["model"] = model
 	}
-	e.translator.normalizeRequestModelMap(req.Model, payload)
+	e.translator.normalizeRequestModelMap(req.Model, payload, req.AuthMetadata)
 	return payload, asString(payload["prompt_cache_key"])
 }
 

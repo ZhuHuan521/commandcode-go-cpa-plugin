@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
 
 func TestBuildCCRequestSystemAndTools(t *testing.T) {
@@ -83,5 +85,27 @@ func TestBuildBodyThreadID(t *testing.T) {
 	nonUUID := executor.buildBody(map[string]any{"model": "m", "messages": []any{}}, "client-session")
 	if strings.Contains(string(nonUUID), "threadId") {
 		t.Fatalf("non-UUID session must not enter threadId: %s", nonUUID)
+	}
+}
+
+func TestExecutorRequestUsesPerAuthModelAlias(t *testing.T) {
+	cfg := parseConfig([]byte("models:\n  - alias: global\n    name: vendor/global\n"))
+	executor := NewExecutor(cfg, nil)
+	payload, _ := json.Marshal(map[string]any{
+		"model":    "private",
+		"messages": []any{},
+	})
+	openAI, _ := executor.openAIRequest(pluginapi.ExecutorRequest{
+		Model:   "private",
+		Payload: payload,
+		AuthMetadata: map[string]any{
+			"models": []any{map[string]any{
+				"alias": "private",
+				"name":  "vendor/private",
+			}},
+		},
+	})
+	if got := asString(openAI["model"]); got != "vendor/private" {
+		t.Fatalf("model = %q, want vendor/private", got)
 	}
 }
