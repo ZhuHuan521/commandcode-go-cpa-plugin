@@ -124,6 +124,23 @@ func (e *Executor) endpoint() string {
 	return e.cfg.baseURL() + "/alpha/generate"
 }
 
+func (e *Executor) endpointForRequest(req pluginapi.ExecutorRequest) string {
+	base := strings.TrimSpace(req.AuthAttributes["base_url"])
+	if base == "" && req.AuthMetadata != nil {
+		if value, ok := req.AuthMetadata["base_url"].(string); ok {
+			base = strings.TrimSpace(value)
+		}
+	}
+	if base == "" {
+		base = e.cfg.baseURL()
+	}
+	base = normalizeCommandCodeBaseURL(base)
+	if base == "" {
+		base = e.cfg.baseURL()
+	}
+	return base + "/alpha/generate"
+}
+
 func (e *Executor) upstreamHeaders(apiKey, sessionID string) map[string]string {
 	headers := map[string]string{
 		"Content-Type":           "application/json",
@@ -149,6 +166,13 @@ func generateTraceparent() string {
 
 func (e *Executor) openAIRequest(req pluginapi.ExecutorRequest) (map[string]any, string) {
 	payload := decodeObject(req.Payload)
+	model := strings.TrimSpace(req.Model)
+	if strings.HasPrefix(strings.ToLower(model), Provider+"/") {
+		model = model[len(Provider)+1:]
+	}
+	if model != "" {
+		payload["model"] = model
+	}
 	e.translator.normalizeRequestModelMap(req.Model, payload)
 	return payload, asString(payload["prompt_cache_key"])
 }
@@ -194,7 +218,7 @@ func (e *Executor) Execute(ctx context.Context, req pluginapi.ExecutorRequest) (
 		e.sessions.ensureInitialized(ctx, client, apiKey)
 		sessionID := e.sessions.sessionFor(req, apiKey, promptCacheKey)
 		ccBody := e.buildBody(openAI, sessionID)
-		status, _, chunks, err := client.doStream(ctx, e.endpoint(), e.upstreamHeaders(apiKey, sessionID), ccBody)
+		status, _, chunks, err := client.doStream(ctx, e.endpointForRequest(req), e.upstreamHeaders(apiKey, sessionID), ccBody)
 		if err != nil {
 			lastErr = err
 			if retryable(0, err) && ctx.Err() == nil {
@@ -308,7 +332,7 @@ func (e *Executor) ExecuteStream(ctx context.Context, req pluginapi.ExecutorRequ
 		e.sessions.ensureInitialized(ctx, client, apiKey)
 		sessionID := e.sessions.sessionFor(req, apiKey, promptCacheKey)
 		ccBody := e.buildBody(openAI, sessionID)
-		status, headers, chunks, err := client.doStream(ctx, e.endpoint(), e.upstreamHeaders(apiKey, sessionID), ccBody)
+		status, headers, chunks, err := client.doStream(ctx, e.endpointForRequest(req), e.upstreamHeaders(apiKey, sessionID), ccBody)
 		if err != nil {
 			lastErr = err
 			if retryable(0, err) && ctx.Err() == nil {
@@ -491,7 +515,7 @@ func (e *Executor) HttpRequest(ctx context.Context, req pluginapi.ExecutorHTTPRe
 	if errClient != nil {
 		return pluginapi.ExecutorHTTPResponse{}, errClient
 	}
-	status, respHeaders, respBody, err := client.do(ctx, strings.TrimSpace(req.URL), headers, req.Body)
+	status, respHeaders, respBody, err := client.do(ctx, req.Method, strings.TrimSpace(req.URL), headers, req.Body)
 	if err != nil {
 		return pluginapi.ExecutorHTTPResponse{}, err
 	}

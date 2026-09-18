@@ -1,6 +1,11 @@
 enabled: true
 priority: 100
 
+# Register commandcode credentials/models with the host's mixed scheduler.
+# Upload an auth file with type: commandcode (see README) for each key/pool.
+# Explicit commandcode/<model> requests remain available as a fixed pin.
+shared_scheduling: true
+
 # Single legacy key or weighted multi-key pool.
 api_key: user_YOUR_KEY
 # api_keys:

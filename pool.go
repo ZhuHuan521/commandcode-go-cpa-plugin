@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -19,7 +20,7 @@ import (
 )
 
 type doer interface {
-	do(ctx context.Context, url string, headers map[string]string, body []byte) (int, http.Header, []byte, error)
+	do(ctx context.Context, method, url string, headers map[string]string, body []byte) (int, http.Header, []byte, error)
 	doStream(ctx context.Context, url string, headers map[string]string, body []byte) (int, http.Header, <-chan pluginapi.HTTPStreamChunk, error)
 }
 
@@ -27,9 +28,9 @@ type hostDoer struct {
 	client pluginapi.HostHTTPClient
 }
 
-func (d hostDoer) do(ctx context.Context, url string, headers map[string]string, body []byte) (int, http.Header, []byte, error) {
+func (d hostDoer) do(ctx context.Context, method, url string, headers map[string]string, body []byte) (int, http.Header, []byte, error) {
 	resp, err := d.client.Do(ctx, pluginapi.HTTPRequest{
-		Method:  http.MethodPost,
+		Method:  firstNonEmpty(strings.TrimSpace(method), http.MethodPost),
 		URL:     url,
 		Headers: stringHeaders(headers),
 		Body:    body,
@@ -57,8 +58,8 @@ type stdDoer struct {
 	client *http.Client
 }
 
-func (d stdDoer) do(ctx context.Context, url string, headers map[string]string, body []byte) (int, http.Header, []byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+func (d stdDoer) do(ctx context.Context, method, url string, headers map[string]string, body []byte) (int, http.Header, []byte, error) {
+	req, err := http.NewRequestWithContext(ctx, firstNonEmpty(strings.TrimSpace(method), http.MethodPost), url, bytes.NewReader(body))
 	if err != nil {
 		return 0, nil, nil, err
 	}
@@ -135,13 +136,13 @@ func stringHeaders(headers map[string]string) http.Header {
 type pool struct {
 	mu      sync.Mutex
 	rnd     *rand.Rand
-	clients map[int]*http.Client
+	clients map[string]*http.Client
 }
 
 func newPool() *pool {
 	return &pool{
 		rnd:     rand.New(rand.NewSource(time.Now().UnixNano())),
-		clients: make(map[int]*http.Client),
+		clients: make(map[string]*http.Client),
 	}
 }
 
@@ -186,7 +187,8 @@ func (p *pool) clientFor(idx int, member APIKeyEntry, hostClient pluginapi.HostH
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if client, ok := p.clients[idx]; ok {
+	cacheKey := strconv.Itoa(idx) + "\x00" + strings.TrimSpace(member.ProxyURL)
+	if client, ok := p.clients[cacheKey]; ok {
 		return stdDoer{client: client}, nil
 	}
 	transport, err := proxyTransport(strings.TrimSpace(member.ProxyURL))
@@ -194,7 +196,7 @@ func (p *pool) clientFor(idx int, member APIKeyEntry, hostClient pluginapi.HostH
 		return nil, err
 	}
 	client := &http.Client{Transport: transport, Timeout: 0}
-	p.clients[idx] = client
+	p.clients[cacheKey] = client
 	return stdDoer{client: client}, nil
 }
 

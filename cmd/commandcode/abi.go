@@ -79,6 +79,7 @@ type abiRegistration struct {
 }
 
 type abiCapabilities struct {
+	AuthProvider          bool                         `json:"auth_provider"`
 	ModelProvider         bool                         `json:"model_provider"`
 	ModelRouter           bool                         `json:"model_router"`
 	Executor              bool                         `json:"executor"`
@@ -88,6 +89,21 @@ type abiCapabilities struct {
 	RequestTranslator     bool                         `json:"request_translator"`
 	ResponseTranslator    bool                         `json:"response_translator"`
 	UsagePlugin           bool                         `json:"usage_plugin"`
+}
+
+type abiAuthLoginStartRequest struct {
+	pluginapi.AuthLoginStartRequest
+	HostCallbackID string `json:"host_callback_id,omitempty"`
+}
+
+type abiAuthLoginPollRequest struct {
+	pluginapi.AuthLoginPollRequest
+	HostCallbackID string `json:"host_callback_id,omitempty"`
+}
+
+type abiAuthRefreshRequest struct {
+	pluginapi.AuthRefreshRequest
+	HostCallbackID string `json:"host_callback_id,omitempty"`
 }
 
 type abiIdentifierResponse struct {
@@ -196,6 +212,9 @@ func CommandCodePluginFree(ptr unsafe.Pointer, len C.size_t) {
 //export CommandCodePluginShutdown
 func CommandCodePluginShutdown() {
 	abiState.Lock()
+	if abiState.plugin != nil {
+		abiState.plugin.Close()
+	}
 	abiState.plugin = nil
 	abiState.host = nil
 	abiState.Unlock()
@@ -215,6 +234,42 @@ func handleABIMethod(ctx context.Context, method string, request []byte) ([]byte
 	switch method {
 	case pluginabi.MethodExecutorIdentifier:
 		return abiOKEnvelope(abiIdentifierResponse{Identifier: plugin.Identifier()})
+	case pluginabi.MethodAuthIdentifier:
+		return abiOKEnvelope(abiIdentifierResponse{Identifier: plugin.Identifier()})
+	case pluginabi.MethodAuthParse:
+		var req pluginapi.AuthParseRequest
+		if errDecode := json.Unmarshal(request, &req); errDecode != nil {
+			return nil, errDecode
+		}
+		resp, errCall := plugin.ParseAuth(ctx, req)
+		return abiOKEnvelopeWithError(resp, errCall)
+	case pluginabi.MethodAuthLoginStart:
+		var rpcReq abiAuthLoginStartRequest
+		if errDecode := json.Unmarshal(request, &rpcReq); errDecode != nil {
+			return nil, errDecode
+		}
+		req := rpcReq.AuthLoginStartRequest
+		req.HTTPClient = abiHostHTTPClient{callbackID: rpcReq.HostCallbackID}
+		resp, errCall := plugin.StartLogin(ctx, req)
+		return abiOKEnvelopeWithError(resp, errCall)
+	case pluginabi.MethodAuthLoginPoll:
+		var rpcReq abiAuthLoginPollRequest
+		if errDecode := json.Unmarshal(request, &rpcReq); errDecode != nil {
+			return nil, errDecode
+		}
+		req := rpcReq.AuthLoginPollRequest
+		req.HTTPClient = abiHostHTTPClient{callbackID: rpcReq.HostCallbackID}
+		resp, errCall := plugin.PollLogin(ctx, req)
+		return abiOKEnvelopeWithError(resp, errCall)
+	case pluginabi.MethodAuthRefresh:
+		var rpcReq abiAuthRefreshRequest
+		if errDecode := json.Unmarshal(request, &rpcReq); errDecode != nil {
+			return nil, errDecode
+		}
+		req := rpcReq.AuthRefreshRequest
+		req.HTTPClient = abiHostHTTPClient{callbackID: rpcReq.HostCallbackID}
+		resp, errCall := plugin.RefreshAuth(ctx, req)
+		return abiOKEnvelopeWithError(resp, errCall)
 	case pluginabi.MethodModelStatic:
 		var req pluginapi.StaticModelRequest
 		if errDecode := json.Unmarshal(request, &req); errDecode != nil {
@@ -309,12 +364,16 @@ func handleRegister(request []byte) ([]byte, error) {
 	}
 	built.Metadata.Version = pluginVersion
 	abiState.Lock()
+	if abiState.plugin != nil {
+		abiState.plugin.Close()
+	}
 	abiState.plugin = plugin
 	abiState.Unlock()
 	return abiOKEnvelope(abiRegistration{
 		SchemaVersion: pluginabi.SchemaVersion,
 		Metadata:      built.Metadata,
 		Capabilities: abiCapabilities{
+			AuthProvider:          built.Capabilities.AuthProvider != nil,
 			ModelProvider:         built.Capabilities.ModelProvider != nil,
 			ModelRouter:           built.Capabilities.ModelRouter != nil,
 			Executor:              built.Capabilities.Executor != nil,

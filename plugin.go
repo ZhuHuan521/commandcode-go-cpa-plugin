@@ -33,6 +33,7 @@ type CommandCodePlugin struct {
 	router     *Router
 	translator *Translator
 	executor   *Executor
+	auth       *AuthProvider
 	cfg        *pluginConfig
 }
 
@@ -43,9 +44,10 @@ func Build(configYAML []byte) (pluginapi.Plugin, *CommandCodePlugin) {
 		models: NewModelProvider(cfg),
 		cfg:    cfg,
 	}
-	p.router = NewRouter(cfg)
+	p.router = NewRouter(cfg, p.models)
 	p.translator = NewTranslator(cfg)
 	p.executor = NewExecutor(cfg, p.translator)
+	p.auth = NewAuthProvider(cfg)
 	p.models.startRefresh()
 	return pluginapi.Plugin{
 		Metadata: pluginapi.Metadata{
@@ -57,6 +59,7 @@ func Build(configYAML []byte) (pluginapi.Plugin, *CommandCodePlugin) {
 		},
 		Capabilities: pluginapi.Capabilities{
 			ModelProvider:         p.models,
+			AuthProvider:          p.auth,
 			ModelRouter:           p.router,
 			Executor:              p.executor,
 			ExecutorModelScope:    pluginapi.ExecutorModelScopeBoth,
@@ -67,6 +70,14 @@ func Build(configYAML []byte) (pluginapi.Plugin, *CommandCodePlugin) {
 			UsagePlugin:           p,
 		},
 	}, p
+}
+
+// Close releases background workers owned by the plugin instance.
+func (p *CommandCodePlugin) Close() {
+	if p == nil || p.models == nil {
+		return
+	}
+	p.models.Close()
 }
 
 // Identifier returns the provider key.
@@ -80,6 +91,25 @@ func (p *CommandCodePlugin) StaticModels(ctx context.Context, req pluginapi.Stat
 // ModelsForAuth mirrors static models for per-auth discovery.
 func (p *CommandCodePlugin) ModelsForAuth(ctx context.Context, req pluginapi.AuthModelRequest) (pluginapi.ModelResponse, error) {
 	return p.models.ModelsForAuth(ctx, req)
+}
+
+// ParseAuth recognizes commandcode JSON auth files. Keeping the parser in the
+// plugin lets the host's normal auth-file synthesizer attach priority, weight,
+// cooldown and per-key metadata to the core scheduler.
+func (p *CommandCodePlugin) ParseAuth(ctx context.Context, req pluginapi.AuthParseRequest) (pluginapi.AuthParseResponse, error) {
+	return p.auth.ParseAuth(ctx, req)
+}
+
+func (p *CommandCodePlugin) StartLogin(ctx context.Context, req pluginapi.AuthLoginStartRequest) (pluginapi.AuthLoginStartResponse, error) {
+	return p.auth.StartLogin(ctx, req)
+}
+
+func (p *CommandCodePlugin) PollLogin(ctx context.Context, req pluginapi.AuthLoginPollRequest) (pluginapi.AuthLoginPollResponse, error) {
+	return p.auth.PollLogin(ctx, req)
+}
+
+func (p *CommandCodePlugin) RefreshAuth(ctx context.Context, req pluginapi.AuthRefreshRequest) (pluginapi.AuthRefreshResponse, error) {
+	return p.auth.RefreshAuth(ctx, req)
 }
 
 // RouteModel sends owned model names to this executor.
@@ -122,6 +152,7 @@ func (p *CommandCodePlugin) HandleUsage(_ context.Context, _ pluginapi.UsageReco
 
 var (
 	_ pluginapi.ModelProvider      = (*CommandCodePlugin)(nil)
+	_ pluginapi.AuthProvider       = (*CommandCodePlugin)(nil)
 	_ pluginapi.ModelRouter        = (*CommandCodePlugin)(nil)
 	_ pluginapi.RequestTranslator  = (*CommandCodePlugin)(nil)
 	_ pluginapi.ResponseTranslator = (*CommandCodePlugin)(nil)

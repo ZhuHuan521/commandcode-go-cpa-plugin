@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
+	"net/http"
 	"sync"
 	"time"
 
@@ -144,11 +145,11 @@ func (m *sessionManager) ensureInitialized(ctx context.Context, client doer, api
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		_, _, _, _ = client.do(ctx, m.cfg.baseURL()+"/alpha/fingerprint/record", headers, fingerprintBody)
+		_, _, _, _ = client.do(ctx, http.MethodPost, m.cfg.baseURL()+"/alpha/fingerprint/record", headers, fingerprintBody)
 	}()
 	go func() {
 		defer wg.Done()
-		_, _, _, _ = client.do(ctx, m.cfg.baseURL()+"/alpha/lifecycle-events", headers, lifecycleBody)
+		_, _, _, _ = client.do(ctx, http.MethodPost, m.cfg.baseURL()+"/alpha/lifecycle-events", headers, lifecycleBody)
 	}()
 	wg.Wait()
 	if ctx.Err() == nil {

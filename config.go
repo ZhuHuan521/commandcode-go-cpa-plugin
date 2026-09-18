@@ -19,9 +19,33 @@ const (
 
 // ModelEntry maps a client-facing alias to the vendor model name.
 type ModelEntry struct {
-	Alias       string `yaml:"alias"`
-	Name        string `yaml:"name"`
-	DisplayName string `yaml:"display_name"`
+	Alias                 string         `yaml:"alias"`
+	Name                  string         `yaml:"name"`
+	DisplayName           string         `yaml:"display_name"`
+	Priority              int            `yaml:"priority"`
+	MaxContextLength      int64          `yaml:"max_context_length"`
+	MaxContextLengthKebab int64          `yaml:"max-context-length"`
+	MaxContextLengthCamel int64          `yaml:"maxContextLength"`
+	Thinking              *ModelThinking `yaml:"thinking"`
+	TestModel             string         `yaml:"test_model"`
+}
+
+// ModelThinking mirrors the host's named reasoning capability metadata.
+type ModelThinking struct {
+	Levels         []string `yaml:"levels"`
+	Min            int      `yaml:"min"`
+	Max            int      `yaml:"max"`
+	ZeroAllowed    bool     `yaml:"zero_allowed"`
+	DynamicAllowed bool     `yaml:"dynamic_allowed"`
+}
+
+func (entry ModelEntry) contextLength() int64 {
+	for _, value := range []int64{entry.MaxContextLength, entry.MaxContextLengthKebab, entry.MaxContextLengthCamel} {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
 }
 
 // APIKeyEntry is one weighted pool member.
@@ -29,6 +53,7 @@ type APIKeyEntry struct {
 	Key      string `yaml:"key"`
 	Weight   int    `yaml:"weight"`
 	ProxyURL string `yaml:"proxy_url"`
+	Disabled bool   `yaml:"disabled"`
 }
 
 func (entry APIKeyEntry) normalizedWeight() int {
@@ -40,8 +65,12 @@ func (entry APIKeyEntry) normalizedWeight() int {
 
 // pluginConfig mirrors plugins.configs.<id> for the commandcode plugin.
 type pluginConfig struct {
-	Enabled                bool          `yaml:"enabled"`
-	Priority               int           `yaml:"priority"`
+	Enabled  bool `yaml:"enabled"`
+	Priority int  `yaml:"priority"`
+	// SharedScheduling registers Command Code models as ordinary provider
+	// routes so the host can select them together with built-in providers.
+	// Explicit commandcode/<model> requests remain available as a pin.
+	SharedScheduling       *bool         `yaml:"shared_scheduling"`
 	Models                 []ModelEntry  `yaml:"models"`
 	BaseURL                string        `yaml:"base_url"`
 	ProjectSlug            string        `yaml:"project_slug"`
@@ -179,9 +208,9 @@ func (c *pluginConfig) upstreamName(model string) string {
 }
 
 func (c *pluginConfig) baseURL() string {
-	base := strings.TrimRight(c.apiBaseValue(), "/")
-	if strings.HasSuffix(base, "/provider/v1") {
-		base = strings.TrimSuffix(base, "/provider/v1")
+	base := normalizeCommandCodeBaseURL(c.apiBaseValue())
+	if base == "" {
+		return defaultAPIBase
 	}
 	return base
 }
@@ -201,13 +230,35 @@ func (c *pluginConfig) protocolVersion() string {
 }
 
 func (c *pluginConfig) projectSlug() string {
-	if c != nil && strings.TrimSpace(c.DeviceProjectDir) != "" {
-		return slugifyProjectPath(c.DeviceProjectDir)
-	}
 	if c != nil && strings.TrimSpace(c.ProjectSlug) != "" {
 		return strings.TrimSpace(c.ProjectSlug)
 	}
+	if c != nil && strings.TrimSpace(c.DeviceProjectDir) != "" {
+		return slugifyProjectPath(c.DeviceProjectDir)
+	}
 	return slugifyProjectPath(defaultDeviceProjectDir)
+}
+
+func (c *pluginConfig) sharedScheduling() bool {
+	return boolDefault(c.SharedScheduling, true)
+}
+
+// hasConfiguredKey reports whether the plugin config can execute without a
+// host-selected auth record. Static model registration uses this to decide
+// whether bare model IDs are safe to expose as a direct fallback route.
+func (c *pluginConfig) hasConfiguredKey() bool {
+	if c == nil {
+		return false
+	}
+	if strings.TrimSpace(c.APIKey) != "" {
+		return true
+	}
+	for _, entry := range c.APIKeys {
+		if !entry.Disabled && strings.TrimSpace(entry.Key) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *pluginConfig) streamIdle() time.Duration {
@@ -231,9 +282,21 @@ func (c *pluginConfig) modelRefreshInterval() time.Duration {
 }
 
 func (c *pluginConfig) members(req pluginapi.ExecutorRequest) []APIKeyEntry {
+	if c == nil {
+		return nil
+	}
+	// A request selected by the host scheduler carries the concrete credential
+	// in AuthAttributes/AuthMetadata. Prefer it over the plugin-wide fallback;
+	// otherwise every scheduler choice would silently use the first configured key.
+	if entries := apiKeyEntriesFromAuth(req); len(entries) > 0 {
+		for index := range entries {
+			entries[index].ProxyURL = firstNonEmpty(entries[index].ProxyURL, c.ProxyURL)
+		}
+		return entries
+	}
 	out := make([]APIKeyEntry, 0, len(c.APIKeys)+1)
 	for _, entry := range c.APIKeys {
-		if strings.TrimSpace(entry.Key) == "" {
+		if strings.TrimSpace(entry.Key) == "" || entry.Disabled {
 			continue
 		}
 		entry.ProxyURL = firstNonEmpty(entry.ProxyURL, c.ProxyURL)
@@ -245,15 +308,88 @@ func (c *pluginConfig) members(req pluginapi.ExecutorRequest) []APIKeyEntry {
 	if strings.TrimSpace(c.APIKey) != "" {
 		return []APIKeyEntry{{Key: strings.TrimSpace(c.APIKey), Weight: 1, ProxyURL: c.ProxyURL}}
 	}
-	if k := strings.TrimSpace(req.AuthAttributes["api_key"]); k != "" {
-		return []APIKeyEntry{{Key: k, Weight: 1, ProxyURL: c.ProxyURL}}
+	return nil
+}
+
+func apiKeyEntriesFromAuth(req pluginapi.ExecutorRequest) []APIKeyEntry {
+	if key := firstStringValue(req.AuthAttributes, "api_key", "api-key", "key"); key != "" {
+		return []APIKeyEntry{{
+			Key:      key,
+			Weight:   parseIntValue(req.AuthAttributes["weight"]),
+			ProxyURL: strings.TrimSpace(req.AuthAttributes["proxy_url"]),
+		}}
 	}
 	if req.AuthMetadata != nil {
-		if k, ok := req.AuthMetadata["api_key"].(string); ok && strings.TrimSpace(k) != "" {
-			return []APIKeyEntry{{Key: strings.TrimSpace(k), Weight: 1, ProxyURL: c.ProxyURL}}
+		if key := firstAnyStringValue(req.AuthMetadata, "api_key", "api-key", "key"); key != "" {
+			return []APIKeyEntry{{Key: key, ProxyURL: strings.TrimSpace(asString(req.AuthMetadata["proxy_url"]))}}
+		}
+		if raw, ok := req.AuthMetadata["api_keys"]; ok {
+			if entries := decodeAPIKeyEntries(raw); len(entries) > 0 {
+				return entries
+			}
 		}
 	}
 	return nil
+}
+
+func decodeAPIKeyEntries(raw any) []APIKeyEntry {
+	values, ok := raw.([]any)
+	if !ok {
+		if typed, okTyped := raw.([]map[string]any); okTyped {
+			values = make([]any, len(typed))
+			for i := range typed {
+				values[i] = typed[i]
+			}
+		}
+	}
+	if len(values) == 0 {
+		return nil
+	}
+	entries := make([]APIKeyEntry, 0, len(values))
+	for _, value := range values {
+		entry, okEntry := value.(map[string]any)
+		if !okEntry {
+			continue
+		}
+		key := firstAnyStringValue(entry, "key", "api_key", "api-key")
+		if key == "" {
+			continue
+		}
+		weight := int(asNumber(entry["weight"]))
+		proxyURL := strings.TrimSpace(asString(entry["proxy_url"]))
+		disabled := asBool(entry["disabled"])
+		if disabled {
+			continue
+		}
+		entries = append(entries, APIKeyEntry{Key: key, Weight: weight, ProxyURL: proxyURL})
+	}
+	return entries
+}
+
+func firstStringValue(values map[string]string, keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(values[key]); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func firstAnyStringValue(values map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(asString(values[key])); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func parseIntValue(value string) int {
+	parsed, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil {
+		return 0
+	}
+	return parsed
 }
 
 func firstNonEmpty(values ...string) string {
@@ -271,6 +407,7 @@ func configFields() []pluginapi.ConfigField {
 	stringType := pluginapi.ConfigFieldTypeString
 	arrayType := pluginapi.ConfigFieldTypeArray
 	return []pluginapi.ConfigField{
+		{Name: "shared_scheduling", Type: boolean, Description: "Register bare model names in the host scheduler; commandcode/<model> remains an explicit pin."},
 		{Name: "api_key", Type: stringType, Description: "Legacy single Command Code API key (user_xxx)."},
 		{Name: "api_keys", Type: arrayType, Description: "Weighted key pool: [{key, weight, proxy_url}]."},
 		{Name: "proxy_url", Type: stringType, Description: "Optional default proxy for keys without their own proxy_url."},

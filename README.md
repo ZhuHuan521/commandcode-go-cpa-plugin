@@ -30,11 +30,38 @@ plugins:
     commandcode:
       enabled: true
       priority: 100
+      shared_scheduling: true
       api_key: user_YOUR_KEY
 ```
 
 Restart `cli-proxy-api`, then open the management center. The AI Providers
 workbench shows a **CommandCode** entry backed by the plugin config.
+
+### Mixed-provider scheduling
+
+The host only puts credentials into its core scheduler when they are represented
+by an auth record. To let a CommandCode key compete with built-in providers for
+the same model, upload a JSON auth file through the management center's Auth
+Files page (the plugin recognizes `type: commandcode`):
+
+```json
+{
+  "type": "commandcode",
+  "api_key": "user_YOUR_KEY",
+  "priority": 10,
+  "weight": 2,
+  "base_url": "https://api.commandcode.ai",
+  "models": [
+    {"alias": "deepseek-flash", "name": "deepseek/deepseek-v4-flash"}
+  ]
+}
+```
+
+For a pool, use `api_keys` with `key`, `weight`, and `proxy_url`. In
+`shared_scheduling` mode each configured model is advertised once using its
+alias (or its upstream name when no alias is set), and the host applies its
+priority, weight, cooldown, and failover logic. `commandcode/<model>` remains
+an explicit CommandCode route syntax but is not duplicated in the model catalog.
 
 ## Build
 

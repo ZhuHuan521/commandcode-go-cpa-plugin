@@ -5,7 +5,35 @@ import (
 	"testing"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginabi"
+	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
+
+func TestAuthMethodIsReachable(t *testing.T) {
+	registerRequest, errMarshalRegister := json.Marshal(abiLifecycleRequest{ConfigYAML: []byte("shared_scheduling: true\n")})
+	if errMarshalRegister != nil {
+		t.Fatal(errMarshalRegister)
+	}
+	if _, err := handleRegister(registerRequest); err != nil {
+		t.Fatal(err)
+	}
+	authRequest, errMarshal := json.Marshal(pluginapi.AuthParseRequest{
+		Provider: "commandcode",
+		FileName: "commandcode.json",
+		RawJSON:  json.RawMessage(`{"type":"commandcode","api_key":"user_test"}`),
+	})
+	if errMarshal != nil {
+		t.Fatal(errMarshal)
+	}
+	rawAuth, errAuth := handleABIMethod(nil, pluginabi.MethodAuthParse, authRequest)
+	if errAuth != nil {
+		t.Fatal(errAuth)
+	}
+	var authEnvelope pluginabi.Envelope
+	if errDecode := json.Unmarshal(rawAuth, &authEnvelope); errDecode != nil || !authEnvelope.OK {
+		t.Fatalf("auth response = %s (%v)", rawAuth, errDecode)
+	}
+
+}
 
 func TestRegistrationEnvelopeCarriesConfigFields(t *testing.T) {
 	raw, err := handleRegister([]byte(`{}`))
@@ -25,6 +53,9 @@ func TestRegistrationEnvelopeCarriesConfigFields(t *testing.T) {
 	}
 	if len(registration.Metadata.ConfigFields) == 0 {
 		t.Fatal("registration metadata has zero config fields")
+	}
+	if !registration.Capabilities.AuthProvider {
+		t.Fatal("registration did not advertise AuthProvider")
 	}
 	metaRaw, _ := json.Marshal(registration.Metadata)
 	t.Logf("registration metadata JSON: %s", metaRaw)

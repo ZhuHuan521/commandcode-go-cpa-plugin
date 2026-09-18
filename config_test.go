@@ -33,6 +33,20 @@ models:
 	}
 }
 
+func TestCommandCodeBaseURLNormalizesVersionedEndpointForms(t *testing.T) {
+	for _, raw := range []string{
+		"https://cc.example/provider/v1",
+		"https://cc.example/provider/v1/models",
+		"https://cc.example/provider/v1/chat/completions",
+		"https://cc.example/provider/v1/responses",
+	} {
+		cfg := parseConfig([]byte("base_url: " + raw + "\n"))
+		if got := cfg.baseURL(); got != "https://cc.example" {
+			t.Fatalf("baseURL(%q) = %q, want https://cc.example", raw, got)
+		}
+	}
+}
+
 func TestConfigFieldsSurviveRegistrationMetadata(t *testing.T) {
 	desc, _ := Build(nil)
 	raw, err := json.Marshal(desc.Metadata)
