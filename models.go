@@ -395,7 +395,11 @@ func mergeConfiguredModelEntry(configured, auth ModelEntry) ModelEntry {
 		merged.Alias = auth.Alias
 	}
 	if strings.TrimSpace(merged.DisplayName) == "" {
-		merged.DisplayName = auth.DisplayName
+		if alias := strings.TrimSpace(merged.Alias); alias != "" {
+			merged.DisplayName = alias
+		} else {
+			merged.DisplayName = auth.DisplayName
+		}
 	}
 	if merged.Priority == 0 {
 		merged.Priority = auth.Priority
@@ -598,7 +602,9 @@ func (p *ModelProvider) modelsWithEntries(entries []ModelEntry) []pluginapi.Mode
 		seen[key] = struct{}{}
 		display := strings.TrimSpace(entry.DisplayName)
 		if display == "" {
-			display = name
+			// An alias is the client-facing name. Do not leak the upstream
+			// vendor namespace into display_name when no label was configured.
+			display = publicID
 		}
 		info := pluginapi.ModelInfo{
 			ID:                         publicID,

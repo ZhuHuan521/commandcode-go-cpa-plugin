@@ -79,7 +79,10 @@ func TestCommandCodeModelsForAuthConfiguredAliasWinsOverAuthMetadata(t *testing.
 	response, errModels := provider.ModelsForAuth(context.Background(), pluginapi.AuthModelRequest{
 		Metadata: map[string]any{
 			"models": []any{
-				map[string]any{"name": "vendor/configured"},
+				map[string]any{
+					"name":         "vendor/configured",
+					"display_name": "vendor/configured",
+				},
 			},
 		},
 	})
@@ -96,6 +99,33 @@ func TestCommandCodeModelsForAuthConfiguredAliasWinsOverAuthMetadata(t *testing.
 	if seen["vendor/configured"] {
 		t.Fatalf("ModelsForAuth() exposed upstream model name instead of configured alias: %v", seen)
 	}
+	for _, model := range response.Models {
+		if model.ID != "configured" {
+			continue
+		}
+		if model.DisplayName != "configured" || model.Description != "configured" {
+			t.Fatalf("configured model labels = (%q, %q), want alias", model.DisplayName, model.Description)
+		}
+	}
+}
+
+func TestCommandCodeStaticModelsUseAliasAsDisplayName(t *testing.T) {
+	cfg := parseConfig([]byte("models:\n  - alias: flash\n    name: deepseek/deepseek-v4-flash\n"))
+	provider := NewModelProvider(cfg)
+	response, errModels := provider.StaticModels(context.Background(), pluginapi.StaticModelRequest{})
+	if errModels != nil {
+		t.Fatalf("StaticModels() error = %v", errModels)
+	}
+	for _, model := range response.Models {
+		if model.ID != "flash" {
+			continue
+		}
+		if model.DisplayName != "flash" || model.Description != "flash" {
+			t.Fatalf("static model labels = (%q, %q), want alias", model.DisplayName, model.Description)
+		}
+		return
+	}
+	t.Fatal("StaticModels() missing flash alias")
 }
 
 func TestCommandCodeModelsForAuthUsesPerAuthBaseURL(t *testing.T) {
