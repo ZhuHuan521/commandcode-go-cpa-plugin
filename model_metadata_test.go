@@ -73,6 +73,31 @@ func TestCommandCodeModelsForAuthMergesAuthMetadataModels(t *testing.T) {
 	}
 }
 
+func TestCommandCodeModelsForAuthConfiguredAliasWinsOverAuthMetadata(t *testing.T) {
+	cfg := parseConfig([]byte("shared_scheduling: true\nmodels:\n  - alias: configured\n    name: vendor/configured\n"))
+	provider := NewModelProvider(cfg)
+	response, errModels := provider.ModelsForAuth(context.Background(), pluginapi.AuthModelRequest{
+		Metadata: map[string]any{
+			"models": []any{
+				map[string]any{"name": "vendor/configured"},
+			},
+		},
+	})
+	if errModels != nil {
+		t.Fatalf("ModelsForAuth() error = %v", errModels)
+	}
+	seen := make(map[string]bool, len(response.Models))
+	for _, model := range response.Models {
+		seen[model.ID] = true
+	}
+	if !seen["configured"] {
+		t.Fatalf("ModelsForAuth() missing configured alias: %v", seen)
+	}
+	if seen["vendor/configured"] {
+		t.Fatalf("ModelsForAuth() exposed upstream model name instead of configured alias: %v", seen)
+	}
+}
+
 func TestCommandCodeModelsForAuthUsesPerAuthBaseURL(t *testing.T) {
 	cfg := parseConfig([]byte("base_url: https://config.example\napi_key: config-key\n"))
 	provider := NewModelProvider(cfg)

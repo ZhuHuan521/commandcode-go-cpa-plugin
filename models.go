@@ -354,15 +354,25 @@ func (p *ModelProvider) catalogEntriesForAuth(metadata map[string]any) []ModelEn
 
 	entries := make([]ModelEntry, 0, len(authEntries))
 	seen := make(map[string]struct{}, len(authEntries))
+	configuredEntries := p.catalogEntries()
+	configuredByKey := make(map[string]ModelEntry, len(authEntries))
+	for _, entry := range configuredEntries {
+		if key := modelEntryKey(entry); key != "" {
+			configuredByKey[key] = entry
+		}
+	}
 	for _, entry := range authEntries {
 		key := modelEntryKey(entry)
 		if key == "" || hasModelEntryKey(seen, key) {
 			continue
 		}
 		seen[key] = struct{}{}
+		if configured, exists := configuredByKey[key]; exists {
+			entry = mergeConfiguredModelEntry(configured, entry)
+		}
 		entries = append(entries, entry)
 	}
-	for _, entry := range p.catalogEntries() {
+	for _, entry := range configuredEntries {
 		key := modelEntryKey(entry)
 		if key == "" || hasModelEntryKey(seen, key) {
 			continue
@@ -371,6 +381,39 @@ func (p *ModelProvider) catalogEntriesForAuth(metadata map[string]any) []ModelEn
 		entries = append(entries, entry)
 	}
 	return entries
+}
+
+// Configured aliases are the public IDs managed in the control panel. Auth
+// metadata may add private models or fill missing capabilities, but it must not
+// replace an existing alias with the upstream vendor name for the same model.
+func mergeConfiguredModelEntry(configured, auth ModelEntry) ModelEntry {
+	merged := configured
+	if strings.TrimSpace(merged.Name) == "" {
+		merged.Name = auth.Name
+	}
+	if strings.TrimSpace(merged.Alias) == "" {
+		merged.Alias = auth.Alias
+	}
+	if strings.TrimSpace(merged.DisplayName) == "" {
+		merged.DisplayName = auth.DisplayName
+	}
+	if merged.Priority == 0 {
+		merged.Priority = auth.Priority
+	}
+	if merged.contextLength() == 0 {
+		if contextLength := auth.contextLength(); contextLength > 0 {
+			merged.MaxContextLength = contextLength
+			merged.MaxContextLengthKebab = 0
+			merged.MaxContextLengthCamel = 0
+		}
+	}
+	if merged.Thinking == nil {
+		merged.Thinking = auth.Thinking
+	}
+	if strings.TrimSpace(merged.TestModel) == "" {
+		merged.TestModel = auth.TestModel
+	}
+	return merged
 }
 
 func hasModelEntryKey(seen map[string]struct{}, key string) bool {
