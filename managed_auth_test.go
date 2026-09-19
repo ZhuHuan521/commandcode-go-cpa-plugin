@@ -38,7 +38,7 @@ api_keys:
 		byKey[doc.APIKey] = doc
 	}
 	first := byKey["key-a"]
-	if first.Type != Provider || first.AuthKind != "apikey" || first.BaseURL != "https://cc.example" || first.Priority != 9 || first.Weight != 3 || first.ProxyURL != "http://proxy-a" {
+	if first.Type != Provider || first.AuthKind != "apikey" || first.Priority != 9 || first.Weight != 3 || first.ProxyURL != "http://proxy-a" {
 		t.Fatalf("key-a document = %#v", first)
 	}
 	second := byKey["key-b"]
@@ -69,7 +69,7 @@ func TestManagedAuthFilesNoopForDirectRouting(t *testing.T) {
 	}
 }
 
-func TestCommandCodeModelsForAuthBackfillsManagedAttributes(t *testing.T) {
+func TestCommandCodeModelsForAuthReturnsEmptyForApikey(t *testing.T) {
 	cfg := parseConfig([]byte(`
 shared_scheduling: true
 models:
@@ -93,17 +93,10 @@ models:
 	if errModels != nil {
 		t.Fatalf("ModelsForAuth() error = %v", errModels)
 	}
-	attrs := resp.AuthUpdate.Attributes
-	for key, want := range map[string]string{
-		"api_key":   "user_a",
-		"auth_kind": "apikey",
-		"base_url":  "https://cc.example",
-		"priority":  "11",
-		"weight":    "3",
-		"proxy_url": "http://proxy-a",
-	} {
-		if got := attrs[key]; got != want {
-			t.Fatalf("AuthUpdate.Attributes[%q] = %q, want %q", key, got, want)
-		}
+	// commandCodeAuthUpdate must not backfill base_url: the plugin executor
+	// owns the upstream path, and leaking base_url into auth attributes makes
+	// the host build <base_url>/chat/completions (404 at Command Code).
+	if resp.AuthUpdate.Attributes != nil && len(resp.AuthUpdate.Attributes) > 0 {
+		t.Fatalf("AuthUpdate.Attributes = %v, want empty for apikey records", resp.AuthUpdate.Attributes)
 	}
 }

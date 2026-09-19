@@ -314,47 +314,25 @@ func normalizeCommandCodeBaseURL(raw string) string {
 	return base
 }
 
-// commandCodeAuthUpdate repairs and enriches host-created Command Code auth
-// records. Managed records are persisted from plugin config keys without going
-// through AuthProvider.ParseAuth, so their routing attributes must be
-// backfilled before the core scheduler is refreshed.
+// commandCodeAuthUpdate repairs the auth classification applied by older host
+// file synthesis. Command Code records contain API keys, but the generic file
+// path historically stamped plugin-parsed records as OAuth before model
+// discovery. Returning an update lets the host persist the correct kind while
+// retaining the original source JSON (including a multi-key api_keys pool).
 func commandCodeAuthUpdate(req pluginapi.AuthModelRequest) pluginapi.AuthData {
 	attrs := cloneStringMap(req.Attributes)
+	currentKind := firstStringValue(attrs, "auth_kind")
+	if currentKind == "" {
+		currentKind = firstAnyStringValue(req.Metadata, "auth_kind")
+	}
+	normalizedKind := strings.ToLower(strings.TrimSpace(currentKind))
+	if normalizedKind == "" || normalizedKind == "apikey" || normalizedKind == "api_key" || normalizedKind == "api-key" {
+		return pluginapi.AuthData{}
+	}
 	if attrs == nil {
 		attrs = map[string]string{}
 	}
-	changed := false
-	setIfMissing := func(key, value string) {
-		value = strings.TrimSpace(value)
-		if value == "" || strings.TrimSpace(attrs[key]) != "" {
-			return
-		}
-		attrs[key] = value
-		changed = true
-	}
-
-	if strings.ToLower(strings.TrimSpace(attrs["auth_kind"])) != "apikey" {
-		attrs["auth_kind"] = "apikey"
-		changed = true
-	}
-
-	key := firstStringValue(attrs, "api_key", "api-key", "key")
-	if key == "" {
-		key = firstAnyStringValue(req.Metadata, "api_key", "api-key", "key")
-	}
-	setIfMissing("api_key", key)
-	setIfMissing("base_url", firstAnyStringValue(req.Metadata, "base_url", "base-url"))
-	setIfMissing("proxy_url", firstAnyStringValue(req.Metadata, "proxy_url", "proxy-url"))
-	setIfMissing("prefix", firstAnyStringValue(req.Metadata, "prefix"))
-	if _, exists := req.Metadata["priority"]; exists {
-		setIfMissing("priority", fmt.Sprintf("%d", int(asNumber(req.Metadata["priority"]))))
-	}
-	if _, exists := req.Metadata["weight"]; exists {
-		setIfMissing("weight", fmt.Sprintf("%d", int(asNumber(req.Metadata["weight"]))))
-	}
-	if !changed {
-		return pluginapi.AuthData{}
-	}
+	attrs["auth_kind"] = "apikey"
 	return pluginapi.AuthData{
 		Provider:    Provider,
 		ID:          req.AuthID,

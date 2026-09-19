@@ -28,7 +28,6 @@ type managedAuthDocument struct {
 	Type      string `json:"type"`
 	AuthKind  string `json:"auth_kind"`
 	APIKey    string `json:"api_key"`
-	BaseURL   string `json:"base_url"`
 	Priority  int    `json:"priority,omitempty"`
 	Weight    int    `json:"weight,omitempty"`
 	ProxyURL  string `json:"proxy_url,omitempty"`
@@ -73,7 +72,6 @@ func (p *CommandCodePlugin) ManagedAuthFiles() []ManagedAuthFile {
 			Type:      Provider,
 			AuthKind:  "apikey",
 			APIKey:    key,
-			BaseURL:   baseURL,
 			Priority:  priority,
 			Weight:    member.normalizedWeight(),
 			ProxyURL:  strings.TrimSpace(member.ProxyURL),
