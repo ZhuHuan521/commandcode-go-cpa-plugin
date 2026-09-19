@@ -55,6 +55,9 @@ type APIKeyEntry struct {
 	Priority int    `yaml:"priority"`
 	ProxyURL string `yaml:"proxy_url"`
 	Disabled bool   `yaml:"disabled"`
+	// DisableCooling overrides the plugin-wide cooldown policy for this key.
+	// nil inherits plugins.configs.commandcode.disable_cooling.
+	DisableCooling *bool `yaml:"disable_cooling"`
 }
 
 func (entry APIKeyEntry) normalizedWeight() int {
@@ -92,6 +95,11 @@ type pluginConfig struct {
 	APIKey                 string        `yaml:"api_key"`
 	APIKeys                []APIKeyEntry `yaml:"api_keys"`
 	ProxyURL               string        `yaml:"proxy_url"`
+	// DisableCooling asks the host to skip credential/model cooldowns for the
+	// Command Code auth records this plugin registers. nil leaves the host
+	// default untouched (cooldowns stay enabled unless config.yaml turns them
+	// off); true keeps the credential always eligible for scheduling.
+	DisableCooling *bool `yaml:"disable_cooling"`
 
 	claimed  map[string]struct{}
 	rewrites map[string]string
@@ -244,6 +252,19 @@ func (c *pluginConfig) sharedScheduling() bool {
 	return boolDefault(c.SharedScheduling, true)
 }
 
+// disableCoolingFor resolves the cooldown override for one key entry. A nil
+// result means "leave the host policy alone"; a non-nil value is forwarded to
+// the host so it can skip or force credential cooldowns for that auth record.
+func (c *pluginConfig) disableCoolingFor(entry APIKeyEntry) *bool {
+	if entry.DisableCooling != nil {
+		return entry.DisableCooling
+	}
+	if c == nil {
+		return nil
+	}
+	return c.DisableCooling
+}
+
 // hasConfiguredKey reports whether the plugin config can execute without a
 // host-selected auth record. Static model registration uses this to decide
 // whether bare model IDs are safe to expose as a direct fallback route.
@@ -363,7 +384,13 @@ func decodeAPIKeyEntries(raw any) []APIKeyEntry {
 		if disabled {
 			continue
 		}
-		entries = append(entries, APIKeyEntry{Key: key, Weight: weight, Priority: priority, ProxyURL: proxyURL})
+		entries = append(entries, APIKeyEntry{
+			Key:            key,
+			Weight:         weight,
+			Priority:       priority,
+			ProxyURL:       proxyURL,
+			DisableCooling: boolPointerFromMap(entry, "disable_cooling", "disable-cooling"),
+		})
 	}
 	return entries
 }
@@ -410,8 +437,9 @@ func configFields() []pluginapi.ConfigField {
 	arrayType := pluginapi.ConfigFieldTypeArray
 	return []pluginapi.ConfigField{
 		{Name: "shared_scheduling", Type: boolean, Description: "Register bare model names in the host scheduler; commandcode/<model> remains an explicit pin."},
+		{Name: "disable_cooling", Type: boolean, Description: "Skip host credential/model cooldowns for Command Code auth records; per-key disable_cooling overrides it."},
 		{Name: "api_key", Type: stringType, Description: "Legacy single Command Code API key (user_xxx)."},
-		{Name: "api_keys", Type: arrayType, Description: "Weighted key pool: [{key, weight, priority, proxy_url}]."},
+		{Name: "api_keys", Type: arrayType, Description: "Weighted key pool: [{key, weight, priority, proxy_url, disable_cooling}]."},
 		{Name: "proxy_url", Type: stringType, Description: "Optional default proxy for keys without their own proxy_url."},
 		{Name: "base_url", Type: stringType, Description: "Command Code API base URL, default https://api.commandcode.ai"},
 		{Name: "models", Type: arrayType, Description: "Model claims as [{alias, name, display_name}]."},

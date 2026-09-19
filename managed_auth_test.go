@@ -100,3 +100,51 @@ models:
 		t.Fatalf("AuthUpdate.Attributes = %v, want empty for apikey records", resp.AuthUpdate.Attributes)
 	}
 }
+
+func TestManagedAuthFilesCarryDisableCoolingOverride(t *testing.T) {
+	cfg := parseConfig([]byte(`
+shared_scheduling: true
+disable_cooling: true
+api_keys:
+  - key: key-a
+  - key: key-b
+    disable_cooling: false
+`))
+	p := &CommandCodePlugin{cfg: cfg}
+	files := p.ManagedAuthFiles()
+	if len(files) != 2 {
+		t.Fatalf("ManagedAuthFiles() len = %d, want 2", len(files))
+	}
+	byKey := map[string]map[string]any{}
+	for _, file := range files {
+		var doc map[string]any
+		if errUnmarshal := json.Unmarshal(file.JSON, &doc); errUnmarshal != nil {
+			t.Fatalf("decode managed auth %s: %v", file.Name, errUnmarshal)
+		}
+		byKey[asString(doc["api_key"])] = doc
+	}
+	// Plugin-wide override applies to keys without their own setting.
+	if got, ok := byKey["key-a"]["disable_cooling"]; !ok || got != true {
+		t.Fatalf("key-a disable_cooling = %v (present=%v), want true", got, ok)
+	}
+	// A per-key override wins over the plugin-wide default.
+	if got, ok := byKey["key-b"]["disable_cooling"]; !ok || got != false {
+		t.Fatalf("key-b disable_cooling = %v (present=%v), want false", got, ok)
+	}
+}
+
+func TestManagedAuthFilesOmitDisableCoolingByDefault(t *testing.T) {
+	cfg := parseConfig([]byte("shared_scheduling: true\napi_key: user_test\n"))
+	p := &CommandCodePlugin{cfg: cfg}
+	files := p.ManagedAuthFiles()
+	if len(files) != 1 {
+		t.Fatalf("ManagedAuthFiles() len = %d, want 1", len(files))
+	}
+	var doc map[string]any
+	if errUnmarshal := json.Unmarshal(files[0].JSON, &doc); errUnmarshal != nil {
+		t.Fatal(errUnmarshal)
+	}
+	if _, exists := doc["disable_cooling"]; exists {
+		t.Fatalf("managed document unexpectedly pins disable_cooling: %s", string(files[0].JSON))
+	}
+}

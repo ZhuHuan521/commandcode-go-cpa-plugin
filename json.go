@@ -102,6 +102,20 @@ func asBool(v any) bool {
 	}
 }
 
+// boolPointerFromMap parses an explicitly present boolean so callers can tell
+// "unset" (nil) apart from "false". The first matching key wins.
+func boolPointerFromMap(values map[string]any, keys ...string) *bool {
+	for _, key := range keys {
+		raw, exists := values[key]
+		if !exists {
+			continue
+		}
+		parsed := asBool(raw)
+		return &parsed
+	}
+	return nil
+}
+
 func trimSpaceBytes(b []byte) []byte { return bytes.TrimSpace(b) }
 
 func timeNowUnix() int64 {

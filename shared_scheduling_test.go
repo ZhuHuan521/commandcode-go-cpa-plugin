@@ -231,3 +231,45 @@ func TestCommandCodeModelsForAuthRepairsOAuthClassification(t *testing.T) {
 		t.Fatalf("AuthUpdate metadata = %#v, want nil so host can preserve source metadata", resp.AuthUpdate.Metadata)
 	}
 }
+
+func TestCommandCodeAuthProviderAppliesDisableCooling(t *testing.T) {
+	p := NewAuthProvider(parseConfig([]byte("disable_cooling: true\n")))
+	resp, errParse := p.ParseAuth(context.Background(), pluginapi.AuthParseRequest{
+		Provider: Provider,
+		FileName: "commandcode.json",
+		RawJSON: []byte(`{
+          "type":"commandcode",
+          "api_keys":[{"key":"user_a"},{"key":"user_b","disable_cooling":false}]
+        }`),
+	})
+	if errParse != nil {
+		t.Fatalf("ParseAuth() error = %v", errParse)
+	}
+	if !resp.Handled || len(resp.Auths) != 2 {
+		t.Fatalf("ParseAuth() = %#v, want two handled auths", resp)
+	}
+	if got := resp.Auths[0].Metadata["disable_cooling"]; got != true {
+		t.Fatalf("first key disable_cooling = %v, want true from plugin config", got)
+	}
+	if got := resp.Auths[1].Metadata["disable_cooling"]; got != false {
+		t.Fatalf("second key disable_cooling = %v, want false from per-key override", got)
+	}
+}
+
+func TestCommandCodeAuthProviderLeavesCoolingUnsetByDefault(t *testing.T) {
+	p := NewAuthProvider(parseConfig(nil))
+	resp, errParse := p.ParseAuth(context.Background(), pluginapi.AuthParseRequest{
+		Provider: Provider,
+		FileName: "commandcode.json",
+		RawJSON:  []byte(`{"type":"commandcode","api_key":"user_a"}`),
+	})
+	if errParse != nil {
+		t.Fatalf("ParseAuth() error = %v", errParse)
+	}
+	if !resp.Handled || len(resp.Auths) != 1 {
+		t.Fatalf("ParseAuth() = %#v, want one handled auth", resp)
+	}
+	if _, exists := resp.Auths[0].Metadata["disable_cooling"]; exists {
+		t.Fatalf("disable_cooling unexpectedly set: %#v", resp.Auths[0].Metadata["disable_cooling"])
+	}
+}

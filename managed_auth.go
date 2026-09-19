@@ -25,14 +25,18 @@ type ManagedAuthFile struct {
 }
 
 type managedAuthDocument struct {
-	Type      string `json:"type"`
-	AuthKind  string `json:"auth_kind"`
-	APIKey    string `json:"api_key"`
-	Priority  int    `json:"priority,omitempty"`
-	Weight    int    `json:"weight,omitempty"`
-	ProxyURL  string `json:"proxy_url,omitempty"`
-	ManagedBy string `json:"managed_by"`
-	Note      string `json:"note,omitempty"`
+	Type     string `json:"type"`
+	AuthKind string `json:"auth_kind"`
+	APIKey   string `json:"api_key"`
+	Priority int    `json:"priority,omitempty"`
+	Weight   int    `json:"weight,omitempty"`
+	ProxyURL string `json:"proxy_url,omitempty"`
+	// DisableCooling is a tri-state override for the host scheduler: omitted
+	// means "inherit", true keeps the credential out of cooldown bookkeeping,
+	// false forces cooldowns back on even when config.yaml disables them.
+	DisableCooling *bool  `json:"disable_cooling,omitempty"`
+	ManagedBy      string `json:"managed_by"`
+	Note           string `json:"note,omitempty"`
 }
 
 // ManagedAuthFiles materializes configured API keys as host auth records. This
@@ -69,14 +73,15 @@ func (p *CommandCodePlugin) ManagedAuthFiles() []ManagedAuthFile {
 			priority = p.cfg.Priority
 		}
 		doc := managedAuthDocument{
-			Type:      Provider,
-			AuthKind:  "apikey",
-			APIKey:    key,
-			Priority:  priority,
-			Weight:    member.normalizedWeight(),
-			ProxyURL:  strings.TrimSpace(member.ProxyURL),
-			ManagedBy: ManagedAuthMarker,
-			Note:      "Managed from plugins.configs.commandcode",
+			Type:           Provider,
+			AuthKind:       "apikey",
+			APIKey:         key,
+			Priority:       priority,
+			Weight:         member.normalizedWeight(),
+			ProxyURL:       strings.TrimSpace(member.ProxyURL),
+			DisableCooling: p.cfg.disableCoolingFor(member),
+			ManagedBy:      ManagedAuthMarker,
+			Note:           "Managed from plugins.configs.commandcode",
 		}
 		raw, errMarshal := json.Marshal(doc)
 		if errMarshal != nil {
