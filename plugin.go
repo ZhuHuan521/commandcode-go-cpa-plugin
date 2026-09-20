@@ -53,8 +53,8 @@ func Build(configYAML []byte) (pluginapi.Plugin, *CommandCodePlugin) {
 		Metadata: pluginapi.Metadata{
 			Name:             "CommandCode Provider",
 			Version:          pluginVersion,
-			Author:           "cpa-admin",
-			GitHubRepository: "https://github.com/router-for-me/commandcode-go-cpa-plugin",
+			Author:           "ZhuHuan521",
+			GitHubRepository: "https://github.com/ZhuHuan521/commandcode-go-cpa-plugin",
 			ConfigFields:     configFields(),
 		},
 		Capabilities: pluginapi.Capabilities{

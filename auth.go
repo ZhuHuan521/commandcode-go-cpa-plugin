@@ -92,6 +92,13 @@ func (p *AuthProvider) ParseAuth(_ context.Context, req pluginapi.AuthParseReque
 		if prefix != "" {
 			attrs["prefix"] = prefix
 		}
+		// Cooldown policy: a per-entry override wins, then the source file,
+		// then the plugin-wide default. Leaving it unset keeps host policy.
+		if entry.DisableCooling != nil {
+			metadata["disable_cooling"] = *entry.DisableCooling
+		} else if p != nil && p.cfg != nil && p.cfg.DisableCooling != nil {
+			metadata["disable_cooling"] = *p.cfg.DisableCooling
+		}
 
 		id := ""
 		if len(entries) > 1 {
@@ -157,13 +164,14 @@ func (p *AuthProvider) RefreshAuth(_ context.Context, req pluginapi.AuthRefreshR
 }
 
 type authKeyEntry struct {
-	Key      string
-	Weight   int
-	Priority int
-	ProxyURL string
-	BaseURL  string
-	Prefix   string
-	Disabled bool
+	Key            string
+	Weight         int
+	Priority       int
+	ProxyURL       string
+	BaseURL        string
+	Prefix         string
+	Disabled       bool
+	DisableCooling *bool
 }
 
 func authKeyEntries(raw map[string]any) []authKeyEntry {
@@ -176,13 +184,14 @@ func authKeyEntries(raw map[string]any) []authKeyEntry {
 				continue
 			}
 			entries = append(entries, authKeyEntry{
-				Key:      key,
-				Weight:   int(asNumber(item["weight"])),
-				Priority: int(asNumber(item["priority"])),
-				ProxyURL: strings.TrimSpace(asString(item["proxy_url"])),
-				BaseURL:  strings.TrimSpace(asString(item["base_url"])),
-				Prefix:   strings.Trim(strings.TrimSpace(asString(item["prefix"])), "/"),
-				Disabled: asBool(item["disabled"]),
+				Key:            key,
+				Weight:         int(asNumber(item["weight"])),
+				Priority:       int(asNumber(item["priority"])),
+				ProxyURL:       strings.TrimSpace(asString(item["proxy_url"])),
+				BaseURL:        strings.TrimSpace(asString(item["base_url"])),
+				Prefix:         strings.Trim(strings.TrimSpace(asString(item["prefix"])), "/"),
+				Disabled:       asBool(item["disabled"]),
+				DisableCooling: boolPointerFromMap(item, "disable_cooling", "disable-cooling"),
 			})
 		}
 	}

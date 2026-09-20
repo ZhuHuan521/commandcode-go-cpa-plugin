@@ -384,6 +384,7 @@ func handleRegister(request []byte) ([]byte, error) {
 	}
 	abiState.plugin = plugin
 	abiState.Unlock()
+	logManagedSchedulingAuthError(syncManagedSchedulingAuths(plugin))
 	return abiOKEnvelope(abiRegistration{
 		SchemaVersion: pluginabi.SchemaVersion,
 		Metadata:      built.Metadata,

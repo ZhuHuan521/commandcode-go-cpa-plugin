@@ -2,7 +2,8 @@ enabled: true
 priority: 100
 
 # Register commandcode credentials/models with the host's mixed scheduler.
-# Upload an auth file with type: commandcode (see README) for each key/pool.
+# The plugin creates and maintains managed host auth records from these keys;
+# no manual auth upload is required.
 # Explicit commandcode/<model> requests remain available as a fixed pin.
 shared_scheduling: true
 
@@ -11,6 +12,7 @@ api_key: user_YOUR_KEY
 # api_keys:
 #   - key: user_YOUR_FIRST_KEY
 #     weight: 10
+#     priority: 10
 #     proxy_url: http://127.0.0.1:18080
 #   - key: user_YOUR_SECOND_KEY
 #     weight: 5
